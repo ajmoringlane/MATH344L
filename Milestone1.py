@@ -111,3 +111,88 @@ least_common = ratings["rating"].value_counts()
 
 print("Least common rating:", least_common.idxmin())
 print("Number of times:", least_common.min())
+
+
+R = ratings.pivot_table(
+    index="user",
+    columns="item",
+    values="rating"
+)
+
+print("Matrix shape:", R.shape)
+
+fraction_missing = R.isna().to_numpy().mean()
+print("Fraction missing:", round(fraction_missing, 4))
+
+per_user = ratings.groupby("user").size()
+
+print("Least active user:", per_user.min())
+print("Median user:", int(per_user.median()))
+print("Most active user:", per_user.max())
+
+print("np.linalg.svd needs every entry to be a number, but R has NaN values.")
+print("Filling in those missing entries is the recommendation problem itself.")
+
+
+titles = pd.read_csv(
+    "ml-100k/u.item",
+    sep="|",
+    encoding="latin-1",
+    header=None,
+    usecols=[0, 1],
+    names=["item", "title"]
+)
+
+stats = ratings.groupby("item")["rating"].agg(["count", "mean"])
+stats = stats.join(titles.set_index("item"))
+
+top_five = stats.sort_values("count", ascending=False).head(5)
+print(top_five.round(2))
+
+
+print("Why a low-rank model is plausible:")
+print("Ratings are driven by a few hidden preferences, like action vs romance")
+print("or old vs new films. Each user has some amount of each preference and")
+print("each movie has some amount of each feature. If only a few factors matter,")
+print("the full ratings matrix can be approximated by a low-rank matrix.")
+
+
+user_avg = ratings.groupby("user")["rating"].mean()
+top_user = user_avg.idxmax()
+
+print("Highest average user:", top_user)
+print("Their average rating:", round(user_avg.max(), 3))
+print("Number of ratings they gave:", per_user[top_user])
+print("We should be careful calling them the most positive user because they")
+print("may have rated only a few movies, and they may have only watched movies")
+print("they expected to like. A small sample can give an extreme average.")
+
+
+print("In ratings, one row is a single rating: a user, a movie, the stars, and")
+print("a timestamp. It is long form with 100,000 rows.")
+print("In R, one row is one user, with a column for every movie. Each entry is")
+print("that user's rating of that movie, or NaN if they never rated it.")
+
+
+print("With no missing entries, every value in the matrix is a number, so")
+print("np.linalg.svd could run. But the ratings we want to predict are exactly")
+print("the missing ones. A complete matrix would already contain the answers,")
+print("and the SVD would just reproduce known ratings instead of predicting new")
+print("ones. We would still need to pick a rank k and check that the low-rank")
+print("version generalizes to ratings it has not seen.")
+
+
+hidden_factors = pd.DataFrame({
+    "High value for a user": [
+        "Loves action and explosions",
+        "Enjoys older classic films",
+        "Prefers lighthearted comedies"
+    ],
+    "High value for a movie": [
+        "Has lots of action scenes",
+        "Was released decades ago",
+        "Is funny and light in tone"
+    ]
+}, index=["Action vs romance", "Old vs new", "Comedy vs drama"])
+
+print(hidden_factors)

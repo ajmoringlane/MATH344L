@@ -110,3 +110,116 @@ cheat_score = rmse(all_user_mean[u], truth)
 print("Honest RMSE:", round(honest_score, 4))
 print("Cheating RMSE:", round(cheat_score, 4))
 print("The cheating score uses test ratings, so it isnt a fair comparison.")
+
+
+print("RMSE is in stars. An RMSE near 1 means predictions are about one star off.")
+
+
+mu = np.nanmean(R)
+user_mean = np.nanmean(R, axis=1)
+
+n_item = known.sum(axis=0)
+item_mean = np.full(N_ITEMS, mu)
+has_rating = n_item > 0
+item_mean[has_rating] = (
+    np.nansum(R, axis=0)[has_rating] / n_item[has_rating]
+)
+
+print("Overall average:", round(mu, 3))
+
+scores = {}
+scores["always 3"] = rmse(np.full(len(test), 3.0), truth)
+scores["overall average"] = rmse(np.full(len(test), mu), truth)
+scores["user average"] = rmse(user_mean[u], truth)
+scores["movie average"] = rmse(item_mean[i], truth)
+
+for name, score in scores.items():
+    print(f"{name:16s} {score:.4f}")
+
+
+def bias_baseline(R):
+    known = ~np.isnan(R)
+    mu = np.nanmean(R)
+
+    b_user = np.nanmean(R - mu, axis=1)
+    residual = R - mu - b_user[:, None]
+
+    n_item = known.sum(axis=0)
+    b_item = np.zeros(R.shape[1])
+    has_rating = n_item > 0
+    b_item[has_rating] = (
+        np.nansum(residual, axis=0)[has_rating] / n_item[has_rating]
+    )
+
+    return mu, b_user, b_item
+
+mu, b_user, b_item = bias_baseline(R)
+pred = np.clip(mu + b_user[u] + b_item[i], 1, 5)
+
+scores["user + movie effects"] = rmse(pred, truth)
+print(pd.Series(scores, name="test RMSE").round(4).sort_values())
+
+
+hand_mu = 17 / 6
+hand_b_user = np.array([4 - hand_mu, 2.5 - hand_mu, 2 - hand_mu])
+hand_b_item = np.array([(1 + 1.5) / 2, (-1 + 0) / 2, (-1.5 + 0) / 2])
+
+print("By hand:")
+print("mu =", round(hand_mu, 4))
+print("b_user =", hand_b_user.round(4))
+print("b_item =", hand_b_item.round(4))
+
+check_mu, check_b_user, check_b_item = bias_baseline(tiny)
+
+print("From bias_baseline:")
+print("mu =", round(check_mu, 4))
+print("b_user =", check_b_user.round(4))
+print("b_item =", check_b_item.round(4))
+
+print("Matches hand work:",
+      np.isclose(check_mu, hand_mu)
+      and np.allclose(check_b_user, hand_b_user)
+      and np.allclose(check_b_item, hand_b_item))
+
+
+def all_scores(seed):
+    tr, te = split_ratings(ratings, seed=seed)
+    R_s = to_matrix(tr)
+    known_s = ~np.isnan(R_s)
+    truth_s = te["rating"].to_numpy()
+    u_s = te["user"].to_numpy() - 1
+    i_s = te["item"].to_numpy() - 1
+
+    mu_s = np.nanmean(R_s)
+    user_mean_s = np.nanmean(R_s, axis=1)
+    n_item_s = known_s.sum(axis=0)
+    item_mean_s = np.full(N_ITEMS, mu_s)
+    has_s = n_item_s > 0
+    item_mean_s[has_s] = np.nansum(R_s, axis=0)[has_s] / n_item_s[has_s]
+
+    m, bu, bi = bias_baseline(R_s)
+
+    return {
+        "always 3": rmse(np.full(len(te), 3.0), truth_s),
+        "overall average": rmse(np.full(len(te), mu_s), truth_s),
+        "user average": rmse(user_mean_s[u_s], truth_s),
+        "movie average": rmse(item_mean_s[i_s], truth_s),
+        "user + movie effects": rmse(
+            np.clip(m + bu[u_s] + bi[i_s], 1, 5), truth_s),
+    }
+
+seed_table = pd.DataFrame({
+    "seed 0": pd.Series(scores),
+    "seed 1": pd.Series(all_scores(1)),
+})
+seed_table["difference"] = seed_table["seed 1"] - seed_table["seed 0"]
+print(seed_table.round(4).sort_values("seed 0"))
+
+same_order = (list(seed_table["seed 0"].sort_values().index)
+              == list(seed_table["seed 1"].sort_values().index))
+print("Same ranking for both seeds:", same_order)
+print("The RMSE values change a little with a different split, because a")
+print("different set of ratings is hidden. The ranking of the models stays the")
+print("same, so the gaps between models are bigger than the split noise. When")
+print("comparing two recommenders, use the same split for both, and if their")
+print("scores are very close, check several seeds before claiming one is better.")
